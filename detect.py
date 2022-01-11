@@ -2,20 +2,22 @@ import cv2
 from PIL import Image
 import torch
 from torchvision import transforms
+from centerface import CenterFace
 
 class Drowsiness:
 
     def __init__(self):
 
-        # Loading cascades
-        self.face_cascade = cv2.CascadeClassifier('xmls/haarcascade_frontalface_default.xml')
-        self.eye_cascade = cv2.CascadeClassifier('xmls/haarcascade_eye.xml')
+        # Load face detection model
+        self.centerface_model = CenterFace()
 
         # Load eye classifier
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.eyes_model = torch.load('models/eyes_resnet18_128x128.pt', map_location=self.device)
         self.eyes_model.eval()
         self.classes = {0: 'closed', 1: 'open'}
+
+        cv2.namedWindow("Drowsiness Detection", cv2.WINDOW_NORMAL)
 
     def classify_eye(self, crop):
 
@@ -35,50 +37,72 @@ class Drowsiness:
         index = self.classes[output.data.cpu().numpy().argmax()]
         
         return index
-
     
-    def get_detections(self, gray, frame):
+    def get_detections_centerface(self, frame):
         
-        face_dets = list()
-        eye_dets = list()
+        h, w = frame.shape[:2]
+        dets, points = self.centerface_model(frame, h, w, threshold=0.30)
+        eyes = list()
 
-        faces = self.face_cascade.detectMultiScale(gray, 1.3, 5)
-
-        # 1.3 is kernel size
-        # 5 is number of neighbors
-
-        for (x, y, w, h) in faces:
+        for det, fts in zip(dets, points):
+            x1, y1, x2, y2, prob = det
             
-            face_dets.append((x, y, w, h))
+            left_eye_x = int(fts[0])
+            left_eye_y = int(fts[1])
+            right_eye_x = int(fts[2])
+            right_eye_y = int(fts[3])
 
-            roi_gray = gray[y:y+h, x:x+w]
-            roi_color = frame[y:y+h, x:x+w]
+            left_x_factor = abs(left_eye_x - x1) * 0.55
+            left_y_factor = abs(left_eye_y - y1) * 0.35
+            right_x_factor = abs(right_eye_x - x2) * 0.55
+            right_y_factor = abs(right_eye_y - y1) * 0.35
 
-            eyes = self.eye_cascade.detectMultiScale(roi_gray, 1.1, 3)
+            left_eye_x1 = int(left_eye_x - left_x_factor)
+            left_eye_y1 = int(left_eye_y - left_y_factor)
+            left_eye_x2 = int(left_eye_x + left_x_factor)
+            left_eye_y2 = int(left_eye_y + left_y_factor)
 
-            for (ex, ey, ew, eh) in eyes:
-                index = self.classify_eye(roi_gray[ey - 5:ey+eh + 5, ex - 5:ex+ew + 5])
-                eye_dets.append((ex, ey, ew, eh, index))
+            right_eye_x1 = int(right_eye_x - right_x_factor)
+            right_eye_y1 = int(right_eye_y - right_y_factor)
+            right_eye_x2 = int(right_eye_x + right_x_factor)
+            right_eye_y2 = int(right_eye_y + right_y_factor)
 
-        return face_dets, eye_dets
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+            index_left = self.classify_eye(gray[left_eye_y1:left_eye_y2, left_eye_x1:left_eye_x2])
+            index_right = self.classify_eye(gray[right_eye_y1:right_eye_y2, right_eye_x1:right_eye_x2])
+
+            eyes.append([
+                left_eye_x1, left_eye_y1, left_eye_x2, left_eye_y2, index_left,
+                right_eye_x1, right_eye_y1, right_eye_x2, right_eye_y2, index_right
+            ])
+
+        return dets, points, eyes
     
-    def draw_detections(self, frame, face_dets, eye_dets):
+    def get_color(self, index):
+        color = (0, 0, 0)
+        if index == 'open':
+            color = (0, 255, 0)
+        elif index == 'closed':
+            color = (0, 0, 255)
+        else:
+            color = (0, 255, 255)
+        
+        return color
+
+    def draw_detections_centerface(self, frame, dets, points, eyes):
+        
         try:
-            for (x, y, w, h) in face_dets:
-                cv2.rectangle(frame, (x, y), (x+w, y+h),(255, 0, 0), 2)
+            for det, fts, eye in zip(dets, points, eyes):
+                x1, y1, x2, y2, prob = det
+                cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)),(255, 0, 0), 2)
 
-            roi_color = frame[y:y+h, x:x+w]
-            for (ex, ey, ew, eh, index) in eye_dets:
-                color = None
-
-                if index == 'open':
-                    color = (0, 255, 0)
-                elif index == 'closed':
-                    color = (0, 0, 255)
-                else:
-                    color = (0, 255, 255)
-
-                cv2.rectangle(roi_color, (ex, ey), (ex+ew, ey+eh), color, 2)
+                for i in range(0, len(fts), 2):
+                    cv2.circle(frame, (int(fts[i]), int(fts[i+1])), 2, (0, 0, 255), -1)
+                
+                cv2.rectangle(frame, (eye[0], eye[1]), (eye[2], eye[3]), self.get_color(eye[4]), 2)
+                cv2.rectangle(frame, (eye[5], eye[6]), (eye[7], eye[8]), self.get_color(eye[9]), 2)
+                
         except:
             pass
 
@@ -87,7 +111,7 @@ class Drowsiness:
     def run(self):
         
         # Initializing video capture
-        video_capture = cv2.VideoCapture(0)
+        video_capture = cv2.VideoCapture(2)
 
         while True:
             ret, frame = video_capture.read()
@@ -96,10 +120,9 @@ class Drowsiness:
                 # Now we convert read frame to gray coz cascading only works on gray
 
                 gray = cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY)
-                # calling detector
 
-                face_dets, eye_dets = self.get_detections(gray, frame)
-                canvas = self.draw_detections(frame, face_dets, eye_dets)
+                dets, points, eyes = self.get_detections_centerface(frame)
+                canvas = self.draw_detections_centerface(frame, dets, points, eyes)
 
                 cv2.imshow("Drowsiness Detection", canvas)
 
@@ -112,5 +135,3 @@ class Drowsiness:
 if __name__ == '__main__':
     drowsiness = Drowsiness()
     drowsiness.run()
-    
-
