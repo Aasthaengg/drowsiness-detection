@@ -1,6 +1,25 @@
 # Drowsiness Detection
 
-Drowsiness detector using `CenterFace` face detector and ResNet18 Drowsiness classifier
+Drowsiness detector using `CenterFace` face detector and ResNet18 Drowsiness classifier <br>
+<table>
+  <tr>
+    <th>Awake</th>
+    <th>Drowsy</th>
+    <th>Sleeping</th>
+  </tr>
+  <tr>
+    <td><img src="https://i.ibb.co/Gn48FNx/Whats-App-Image-2022-01-12-at-9-42-53-PM.jpg"  alt="awake" width="300"/>
+</td>
+    <td><img src="https://i.ibb.co/d5HwYD0/Whats-App-Image-2022-01-12-at-9-43-23-PM.jpg" alt="drowsy" width="300"/>
+</td>
+    <td><img src="https://i.ibb.co/mvJvph4/Whats-App-Image-2022-01-12-at-9-43-43-PM.jpg" alt="sleeping" width="300"/>
+</td>
+  </tr>
+</table>
+
+## Demo 
+
+[Demo Video](https://drive.google.com/file/d/1RMu-EX5x6tlTGiPn75DY9RO8HhD2UCed/preview)
 
 ---
 ## Index
